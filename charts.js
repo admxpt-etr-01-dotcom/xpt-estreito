@@ -1,13 +1,15 @@
 let barChart;
 let slaDriverChart;
 
-export function renderCharts(data, mode = 'default') {
+export function renderCharts(data, mode = 'default', extra = {}) {
 
   if (barChart) barChart.destroy();
   if (slaDriverChart) slaDriverChart.destroy();
 
+  const selectedStatus = extra.status || '';
+
   /* ===============================
-     🔤 STATUS DOS PEDIDOS
+     🔤 GRAFICO 1 (NUMERICO)
   =============================== */
   const statusLabelsMap = {
     Delivered: 'Entregue',
@@ -18,7 +20,7 @@ export function renderCharts(data, mode = 'default') {
     OnHold: 'Ocorrência'
   };
 
-  const filteredStatus = Object.entries(data.statusMap)
+  const filteredStatus = Object.entries(data.statusMap || {})
     .filter(([status]) => status && status !== 'undefined');
 
   const statusLabels = filteredStatus.map(
@@ -26,61 +28,212 @@ export function renderCharts(data, mode = 'default') {
   );
 
   const statusValues = filteredStatus.map(
-    ([, value]) => value
+    ([, value]) => Number(value) || 0
   );
+
+  const statusColors = filteredStatus.map(([status]) => {
+    if (status === 'Delivered') return '#22c55e';
+    if (status === 'Delivering') return '#facc15';
+    return '#ef4444';
+  });
 
   barChart = new Chart(document.getElementById('barChart'), {
     type: 'bar',
     data: {
       labels: statusLabels,
       datasets: [{
-        label: 'Status dos Pedidos',
+        label: 'Quantidade',
         data: statusValues,
-        backgroundColor: '#ff0000'
+        backgroundColor: statusColors
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+
+      // 🔥 CORREÇÃO AQUI
+      interaction: {
+        mode: 'nearest',
+        intersect: true
+      },
+      hover: {
+        mode: 'nearest',
+        intersect: true
+      },
+
       scales: {
-        y: { beginAtZero: true }
+        y: {
+          beginAtZero: true
+        }
+      },
+
+      plugins: {
+        tooltip: {
+          enabled: true,
+          backgroundColor: '#ff6600',
+          titleColor: '#fff',
+          bodyColor: '#fff',
+          borderColor: '#ff6600',
+          borderWidth: 1,
+          padding: 10,
+          displayColors: false,
+          callbacks: {
+            label: function(context) {
+              return `📦 ${context.raw} pedidos`;
+            }
+          }
+        }
       }
     }
   });
 
   /* ===============================
-     🟢 SLA POR ENTREGADOR (TODOS)
+     🔥 GRAFICO 2 (PORCENTAGEM)
   =============================== */
 
-  const sortedDrivers = data.driverSLA
-    .filter(d => d.name && !isNaN(d.sla))
-    .sort((a, b) => b.sla - a.sla);
+  let labels = [];
+  let values = [];
+  let rawValues = [];
+  let title = '';
+  let colors = [];
 
-  const fullNames = sortedDrivers.map(d => d.name);
-const shortNames = sortedDrivers.map(d => d.name); // 🔥 nome completo
+  const cityMap = {
+    '65365-000': 'Zé Doca',
+    '65272-000': 'Santa Luzia do Paruá',
+    '65274-000': 'Nova Olinda do Maranhão',
+    '65368-000': 'Araguanã',
+    '65398-000': 'Alto Alegre do Pindaré',
+    '65363-000': 'Gov. Newton Bello',
+    '65385-000': 'São João do Carú',
+    '65378-000': 'Tufilândia',
+    '65380-000': 'Bom Jardim'
+  };
 
+  if (mode === 'DS') {
 
-  /* 🔥 CONTROLE DE ALTURA + SCROLL */
+    title = 'Performance por Cidade (%)';
+
+    const cityStats = {};
+
+    (extra.rawData || []).forEach(row => {
+      const cep = row['Postal Code'];
+      const city = cityMap[cep] || cep;
+      const status = row['Status'];
+
+      if (!city) return;
+
+      if (!cityStats[city]) {
+        cityStats[city] = { total: 0, delivered: 0 };
+      }
+
+      cityStats[city].total++;
+
+      if (status === 'Delivered') {
+        cityStats[city].delivered++;
+      }
+    });
+
+    const sorted = Object.entries(cityStats)
+      .map(([name, stats]) => {
+        const percent = stats.total
+          ? (stats.delivered / stats.total) * 100
+          : 0;
+
+        return {
+          name,
+          percent,
+          total: stats.total,
+          delivered: stats.delivered
+        };
+      })
+      .sort((a, b) => b.percent - a.percent);
+
+    labels = sorted.map(c => c.name);
+    values = sorted.map(c => c.percent);
+    rawValues = sorted.map(c => `${c.delivered}/${c.total}`);
+
+    colors = sorted.map(c =>
+      c.percent >= 98 ? '#22c55e' :
+      c.percent >= 95 ? '#facc15' :
+      '#ef4444'
+    );
+  }
+
+  else if (selectedStatus === 'OnHold') {
+
+    title = 'Ocorrências por Entregador (%)';
+
+    const driverCount = {};
+
+    (extra.rawData || []).forEach(row => {
+      const driver = row['Driver Name'];
+      const status = row['Status'];
+
+      if (status === 'OnHold' && driver) {
+        driverCount[driver] = (driverCount[driver] || 0) + 1;
+      }
+    });
+
+    const total = Object.values(driverCount).reduce((a, b) => a + b, 0);
+
+    const sorted = Object.entries(driverCount)
+      .map(([name, totalDriver]) => ({
+        name,
+        total: totalDriver,
+        percent: total ? (totalDriver / total) * 100 : 0
+      }))
+      .sort((a, b) => b.percent - a.percent);
+
+    labels = sorted.map(d => d.name);
+    rawValues = sorted.map(d => d.total);
+    values = sorted.map(d => d.percent);
+
+    colors = sorted.map(() => '#ef4444');
+  }
+
+  else {
+
+    title = 'SLA por Cidade (%)';
+
+    const sorted = (data.citySLA || [])
+      .filter(c => c.name)
+      .map(c => ({
+        name: c.name,
+        percent: Number(c.sla) || 0,
+        total: c.total || 0
+      }))
+      .sort((a, b) => b.percent - a.percent);
+
+    labels = sorted.map(c => c.name);
+    rawValues = sorted.map(c => c.total);
+    values = sorted.map(c => c.percent);
+
+    colors = sorted.map(c =>
+      c.percent >= 98 ? '#22c55e' :
+      c.percent >= 95 ? '#facc15' :
+      '#ef4444'
+    );
+  }
+
+  if (!labels.length) {
+    labels = ['Sem dados'];
+    values = [0];
+    rawValues = ['0/0'];
+    colors = ['#999'];
+  }
+
   const pieCanvas = document.getElementById('pieChart');
-  const chartWrapper = pieCanvas.parentElement;
-
-  chartWrapper.style.height = '420px'; // área visível
-  pieCanvas.style.height = (sortedDrivers.length * 34) + 'px'; // altura real
 
   slaDriverChart = new Chart(pieCanvas, {
     type: 'bar',
     data: {
-      labels: shortNames,
+      labels: labels,
       datasets: [{
-        label: 'SLA por Entregador (%)',
-        data: sortedDrivers.map(d => d.sla),
-        backgroundColor: sortedDrivers.map(d =>
-          d.sla >= 98 ? '#22c55e' :
-          d.sla >= 95 ? '#facc15' :
-          '#ef4444'
-        ),
+        label: title,
+        data: values,
+        backgroundColor: colors,
         borderRadius: 6,
-        barThickness: 18
+        barThickness: 16
       }]
     },
     options: {
@@ -89,12 +242,6 @@ const shortNames = sortedDrivers.map(d => d.name); // 🔥 nome completo
       maintainAspectRatio: false,
 
       scales: {
-        y: {
-          ticks: {
-            autoSkip: false,        // 🔥 evita sumir nomes
-            font: { size: 12 }
-          }
-        },
         x: {
           beginAtZero: true,
           max: 100,
@@ -105,16 +252,12 @@ const shortNames = sortedDrivers.map(d => d.name); // 🔥 nome completo
       },
 
       plugins: {
-        legend: {
-          display: false
-        },
+        legend: { display: false },
         tooltip: {
           callbacks: {
-            title: function (items) {
-              return fullNames[items[0].dataIndex]; // nome completo
-            },
-            label: function (context) {
-              return `SLA: ${context.raw}%`;
+            label: function(context) {
+              const i = context.dataIndex;
+              return `${values[i].toFixed(2)}% (${rawValues[i]})`;
             }
           }
         }
