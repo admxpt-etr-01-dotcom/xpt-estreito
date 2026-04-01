@@ -97,17 +97,15 @@ export function renderCharts(data, mode = 'default', extra = {}) {
   let title = '';
   let colors = [];
 
-  const cityMap = {
-    '65365-000': 'Zé Doca',
-    '65272-000': 'Santa Luzia do Paruá',
-    '65274-000': 'Nova Olinda do Maranhão',
-    '65368-000': 'Araguanã',
-    '65398-000': 'Alto Alegre do Pindaré',
-    '65363-000': 'Gov. Newton Bello',
-    '65385-000': 'São João do Carú',
-    '65378-000': 'Tufilândia',
-    '65380-000': 'Bom Jardim'
-  };
+const cityMap = {
+'77913-000': 'Palmeiras do Tocantins',
+'65975-000': 'Estreito',
+'77895-000': 'Nazaré',
+'77905-000': 'Angico',
+'77900-000': 'Tocantinópolis',
+'77885-000': 'Santa Terezinha do Tocantins',
+'77908-000': 'Aguiarnópolis'
+};
 
   if (mode === 'DS') {
 
